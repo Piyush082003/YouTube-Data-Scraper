@@ -1,0 +1,94 @@
+from googleapiclient.discovery import build
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.chart import BarChart, Reference
+import string
+
+# 👉 Your YouTube API key
+API_KEY = "Enter_Your_API_Key_Here"  
+
+# 👉 MrBeast channel ID
+CHANNEL_ID = "UCX6OQ3DkcsbYNE6H8uQQuVA"
+
+# Initialize YouTube API client
+youtube = build('youtube', 'v3', developerKey=API_KEY)
+
+# Step 1: Get MrBeast channel uploads playlist ID
+channel_response = youtube.channels().list(
+    part="contentDetails",
+    id=CHANNEL_ID
+).execute()
+
+upload_playlist_id = channel_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+
+# Step 2: Get latest 20 videos
+videos_data = []
+playlist_response = youtube.playlistItems().list(
+    part="snippet",
+    playlistId=upload_playlist_id,
+    maxResults=20
+).execute()
+
+for item in playlist_response['items']:
+    video_title = item['snippet']['title']
+    video_id = item['snippet']['resourceId']['videoId']
+    published_date = item['snippet']['publishedAt']
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    videos_data.append({
+        "Video Title": video_title,
+        "Video ID": video_id,
+        "Published Date": published_date,
+        "Video URL": video_url
+    })
+
+# Step 3: Get statistics for each video
+for video in videos_data:
+    stats_response = youtube.videos().list(
+        part="statistics",
+        id=video["Video ID"]
+    ).execute()
+    stats = stats_response['items'][0]['statistics']
+
+    video["Views"] = int(stats.get('viewCount', 0))
+    video["Likes"] = int(stats.get('likeCount', 0)) if 'likeCount' in stats else 0
+    video["Comments"] = int(stats.get('commentCount', 0)) if 'commentCount' in stats else 0
+
+# Step 4: Export to Excel
+df = pd.DataFrame(videos_data)
+file_name = "MrBeast_Latest20_Videos.xlsx"
+df.to_excel(file_name, index=False)
+
+# Step 5: Add Bar Chart using openpyxl
+wb = load_workbook(file_name)
+ws = wb.active
+
+# Data for chart (Views and Likes)
+min_row = 2
+max_row = len(videos_data) + 1
+min_col = 6  # "Views" column
+max_col = 7  # "Likes" column
+
+data = Reference(ws, min_col=min_col, max_col=max_col, min_row=1, max_row=max_row)
+titles = Reference(ws, min_col=1, max_col=1, min_row=2, max_row=max_row)
+
+chart = BarChart()
+chart.title = "MrBeast Latest 20 Videos - Views vs Likes"
+chart.y_axis.title = "Count"
+chart.x_axis.title = "Video Title"
+
+chart.add_data(data, titles_from_data=True)
+chart.set_categories(titles)
+chart.shape = 4
+chart.width = 25
+chart.height = 10
+
+# Position chart
+ws.add_chart(chart, "J2")
+
+# Save the updated file
+wb.save(file_name)
+wb.close()
+
+print("✅ MrBeast's latest 20 videos scraped successfully.")
+print(f"📊 Chart added to '{file_name}' showing Views vs Likes.")
